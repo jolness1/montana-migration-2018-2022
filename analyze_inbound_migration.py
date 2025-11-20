@@ -14,7 +14,7 @@ def load_data():
     return df, states
 
 def create_output_directories():
-    """Create output directories if they don't exist"""
+    # create output directories if they don't exist
     Path('output').mkdir(exist_ok=True)
     Path('output/by-county').mkdir(exist_ok=True)
 
@@ -121,6 +121,58 @@ def analyze_by_county_detail(df, county_migration_df):
     print("Analysis 3 complete: Saved detailed county files to output/by-county/")
     print(f"Generated {len(county_migration_df)} county-specific CSV files")
 
+
+def generate_topN_counties_report(df, county_migration_df, top_n_counties=5, top_n_origins=5):
+    # create a CSV with the top N counties and, for each, their top M originState entries.
+    rows = []
+
+    top_counties = county_migration_df.head(top_n_counties)['county'].tolist()
+    for county in top_counties:
+        county_df = df[df['county'] == county].copy()
+        total = county_df['inboundFromState'].sum()
+        if total == 0:
+            continue
+        top_origins = county_df.sort_values('inboundFromState', ascending=False).head(top_n_origins)
+        for _, r in top_origins.iterrows():
+            origin = r['originState']
+            inbound = int(r['inboundFromState'])
+            pct = round((inbound / total) * 100, 2)
+            rows.append({
+                'county': county,
+                'originState': origin,
+                'inboundFromState': inbound,
+                'pctOfTotal': pct
+            })
+
+    out_df = pd.DataFrame(rows, columns=['county', 'originState', 'inboundFromState', 'pctOfTotal'])
+    out_name = f"{top_n_origins}-top-{top_n_counties}-counties.csv"
+    out_path = f'output/{out_name}'
+    out_df.to_csv(out_path, index=False)
+    print(f"Generated {out_path} with top {top_n_origins} origins for top {top_n_counties} counties")
+
+
+def generate_total_top5_counties(df, county_migration_df, top_n=5):
+    # top n origins for top n counties
+    # compute grand total across all counties
+    grand_total = county_migration_df['totalMigration'].sum()
+    rows = []
+    top_counties = county_migration_df.head(top_n)
+    for _, r in top_counties.iterrows():
+        county = r['county']
+        total = int(r['totalMigration'])
+        pct = round((total / grand_total) * 100, 2) if grand_total > 0 else 0.0
+        rows.append({
+            'county': county,
+            'originState': 'Total',
+            'inboundFromState': total,
+            'pctOfTotal': pct
+        })
+
+    out_df = pd.DataFrame(rows, columns=['county', 'originState', 'inboundFromState', 'pctOfTotal'])
+    out_path = 'output/total-top-5-counties.csv'
+    out_df.to_csv(out_path, index=False)
+    print(f"Generated {out_path} with top {top_n} counties' total inward migration")
+
 def main():
     print("Starting Montana Migration Analysis...")
     print("=" * 50)
@@ -136,6 +188,16 @@ def main():
     analyze_overall_migration(df)
     county_migration_df = analyze_migration_by_county(df, states)
     analyze_by_county_detail(df, county_migration_df)
+    # Generate reports for top counties x top origins
+    # 1) 5-top-5-counties.csv => top 5 counties x top 5 origins
+    generate_topN_counties_report(df, county_migration_df, top_n_counties=5, top_n_origins=5)
+    # 2) 4-top-5-counties.csv => top 5 counties x top 4 origins
+    generate_topN_counties_report(df, county_migration_df, top_n_counties=5, top_n_origins=4)
+    # 3) 3-top-5-counties.csv => top 5 counties x top 3 origins
+    generate_topN_counties_report(df, county_migration_df, top_n_counties=5, top_n_origins=3)
+
+    # 4) total-top-5-counties.csv => top 5 counties with their overall inward migration totals
+    generate_total_top5_counties(df, county_migration_df, top_n=5)
     
     print("=" * 50)
     print("Analysis complete! Check the output/ directory for results.")
